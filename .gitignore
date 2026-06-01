@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+dist/
+build/
+*.log
+
+# APK and binaries (NEVER commit proprietary files)
+*.apk
+*.so
+*.jar
+*.aar
+jadx_out/
+apk_raw/
+
+# Device-specific data
+powerray_params.txt
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace

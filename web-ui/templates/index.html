@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PowerRay Control</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0e1a; color: #e0e8ff; font-family: 'Segoe UI', monospace; }
+
+  header {
+    background: #0d1525; border-bottom: 1px solid #1e3a5f;
+    padding: 12px 20px; display: flex; align-items: center; gap: 20px;
+  }
+  header h1 { font-size: 1.2rem; color: #4fc3f7; letter-spacing: 2px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #f44; display: inline-block; }
+  .status-dot.on { background: #4f4; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    grid-template-rows: auto auto;
+    gap: 12px; padding: 12px; height: calc(100vh - 54px);
+  }
+
+  .card {
+    background: #0d1525; border: 1px solid #1e3a5f;
+    border-radius: 8px; padding: 14px;
+  }
+  .card h2 { font-size: .75rem; color: #4fc3f7; text-transform: uppercase;
+             letter-spacing: 2px; margin-bottom: 12px; border-bottom: 1px solid #1e3a5f; padding-bottom: 6px; }
+
+  .telem-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .telem-label { color: #607d9f; font-size: .8rem; }
+  .telem-val { color: #e0e8ff; font-size: .9rem; font-weight: bold; font-family: monospace; }
+  .telem-val.green { color: #4caf50; }
+  .telem-val.yellow { color: #ffb300; }
+  .telem-val.red { color: #f44336; }
+
+  #horizon-wrap { display: flex; justify-content: center; margin: 10px 0; }
+  #horizon { width: 160px; height: 160px; border-radius: 50%;
+             border: 2px solid #1e3a5f; overflow: hidden; position: relative; background: #0a0e1a; }
+  #sky { position: absolute; width: 100%; height: 50%; background: #1565c0; top: 0; transform-origin: center bottom; }
+  #ground { position: absolute; width: 100%; height: 50%; background: #5d4037; bottom: 0; transform-origin: center top; }
+  #horizon-line { position: absolute; width: 100%; height: 2px; background: #fff; top: 50%; left: 0; }
+  #horizon-center { position: absolute; width: 40px; height: 2px; background: #ffb300; top: 50%; left: 50%; transform: translateX(-50%); }
+
+  #compass-wrap { display: flex; justify-content: center; margin: 10px 0; }
+  #compass { width: 120px; height: 120px; border-radius: 50%;
+             border: 2px solid #1e3a5f; position: relative; background: #0a0e1a;
+             display: flex; align-items: center; justify-content: center; }
+  #compass-arrow { font-size: 2rem; color: #f44336; transition: transform .3s; }
+  #yaw-val { position: absolute; bottom: 8px; font-size: .75rem; color: #607d9f; }
+
+  #cam-panel { grid-column: 2; grid-row: 1 / 3; display: flex; flex-direction: column; gap: 10px; }
+  #video-wrap { flex: 1; background: #000; border-radius: 6px; overflow: hidden;
+                display: flex; align-items: center; justify-content: center; min-height: 300px; }
+  #video-feed { max-width: 100%; max-height: 100%; }
+  .no-video { color: #607d9f; font-size: .9rem; }
+
+  .btn { padding: 8px 16px; border: 1px solid #1e3a5f; border-radius: 6px;
+         background: #0d1525; color: #e0e8ff; cursor: pointer; font-size: .85rem;
+         transition: all .2s; }
+  .btn:hover { background: #1e3a5f; }
+  .btn.danger { border-color: #f44336; color: #f44336; }
+  .btn.danger:hover { background: #f44336; color: #fff; }
+  .btn.success { border-color: #4caf50; color: #4caf50; }
+  .btn.success:hover { background: #4caf50; color: #000; }
+  .btn.active { background: #1e3a5f; }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  select { background: #0a0e1a; color: #e0e8ff; border: 1px solid #1e3a5f;
+           border-radius: 6px; padding: 6px 10px; font-size: .85rem; }
+
+  #joystick-area { display: flex; gap: 20px; justify-content: center; align-items: center; padding: 10px 0; }
+  .joystick-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .joystick-label { font-size: .7rem; color: #607d9f; }
+  .joystick { width: 100px; height: 100px; background: #0a0e1a; border: 2px solid #1e3a5f;
+              border-radius: 50%; position: relative; cursor: pointer; touch-action: none; }
+  .joystick-dot { width: 24px; height: 24px; background: #4fc3f7; border-radius: 50%;
+                  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+                  transition: none; pointer-events: none; }
+  .throttle-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  #throttle-slider { writing-mode: vertical-lr; direction: rtl;
+                     width: 30px; height: 100px; cursor: pointer;
+                     accent-color: #4fc3f7; }
+
+  #params-panel { grid-column: 3; grid-row: 1 / 3; overflow-y: auto; }
+  .param-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .param-name { flex: 1; font-size: .75rem; color: #607d9f; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .param-input { width: 80px; background: #0a0e1a; border: 1px solid #1e3a5f;
+                 color: #e0e8ff; border-radius: 4px; padding: 3px 6px; font-size: .75rem; font-family: monospace; }
+  .param-set-btn { padding: 2px 8px; font-size: .7rem; background: #0a0e1a;
+                   border: 1px solid #4fc3f7; color: #4fc3f7; border-radius: 4px; cursor: pointer; }
+  .param-set-btn:hover { background: #4fc3f7; color: #000; }
+  #param-search { width: 100%; margin-bottom: 8px; background: #0a0e1a; border: 1px solid #1e3a5f;
+                  color: #e0e8ff; border-radius: 6px; padding: 6px 10px; font-size: .8rem; }
+  #param-count { font-size: .7rem; color: #607d9f; margin-bottom: 6px; }
+
+  .bat-bar-bg { background: #0a0e1a; border-radius: 4px; height: 8px; margin-top: 4px; overflow: hidden; }
+  .bat-bar { height: 100%; background: #4caf50; border-radius: 4px; transition: width .5s, background .5s; }
+
+  #log { background: #050810; border: 1px solid #1e3a5f; border-radius: 6px;
+         padding: 8px; height: 80px; overflow-y: auto; font-size: .72rem;
+         font-family: monospace; color: #607d9f; margin-top: 8px; }
+  .log-line { margin-bottom: 2px; }
+  .log-line.ok { color: #4caf50; }
+  .log-line.err { color: #f44336; }
+  .log-line.info { color: #4fc3f7; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>&#x2B21; POWERRAY CONTROL</h1>
+  <span class="status-dot" id="conn-dot"></span>
+  <span id="conn-text" style="font-size:.8rem;color:#607d9f">Disconnected</span>
+  <span id="armed-badge" style="display:none;margin-left:10px;padding:2px 10px;border-radius:4px;
+        background:#f44336;font-size:.75rem;font-weight:bold">ARMED</span>
+</header>
+
+<div class="grid">
+
+  <!-- Left: Telemetry -->
+  <div style="display:flex;flex-direction:column;gap:12px;">
+
+    <div class="card">
+      <h2>Attitude</h2>
+      <div id="horizon-wrap"><div id="horizon">
+        <div id="sky"></div>
+        <div id="ground"></div>
+        <div id="horizon-line"></div>
+        <div id="horizon-center"></div>
+      </div></div>
+      <div class="telem-row"><span class="telem-label">Roll</span><span class="telem-val" id="roll">0.0&deg;</span></div>
+      <div class="telem-row"><span class="telem-label">Pitch</span><span class="telem-val" id="pitch">0.0&deg;</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Heading</h2>
+      <div id="compass-wrap"><div id="compass">
+        <span id="compass-arrow">&#x2191;</span>
+        <span id="yaw-val">0&deg;</span>
+      </div></div>
+      <div class="telem-row"><span class="telem-label">Yaw</span><span class="telem-val" id="yaw">0.0&deg;</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Battery</h2>
+      <div class="telem-row"><span class="telem-label">Voltage</span><span class="telem-val" id="bat-v">--V</span></div>
+      <div class="telem-row"><span class="telem-label">Current</span><span class="telem-val" id="bat-a">--A</span></div>
+      <div class="telem-row"><span class="telem-label">Level</span><span class="telem-val" id="bat-pct">--%</span></div>
+      <div class="bat-bar-bg"><div class="bat-bar" id="bat-bar" style="width:0%"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Navigation</h2>
+      <div class="telem-row"><span class="telem-label">Depth</span><span class="telem-val" id="depth">0.00m</span></div>
+      <div class="telem-row"><span class="telem-label">Vx</span><span class="telem-val" id="vx">0.00</span></div>
+      <div class="telem-row"><span class="telem-label">Vy</span><span class="telem-val" id="vy">0.00</span></div>
+      <div class="telem-row"><span class="telem-label">Vz</span><span class="telem-val" id="vz">0.00</span></div>
+    </div>
+
+  </div>
+
+  <!-- Center: Camera + Controls -->
+  <div id="cam-panel">
+
+    <div class="card" style="flex:1;display:flex;flex-direction:column;">
+      <h2>Camera</h2>
+      <div id="video-wrap">
+        <img id="video-feed" src="/video" onerror="this.style.display='none';document.getElementById('no-vid').style.display='block'">
+        <span class="no-video" id="no-vid" style="display:none">Camera feed unavailable<br><small>Close Vision+ app on the tablet first</small></span>
+      </div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn" id="btn-cam-connect" onclick="connectCam()">Connect camera</button>
+        <button class="btn" onclick="camAction('vf_start')">&#x25B6; Viewfinder</button>
+        <button class="btn" onclick="reloadVideo()">&#x21BA; Video</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="camAction('photo')">Photo</button>
+        <button class="btn" id="rec-btn" onclick="toggleRec()">&#x23FA; Rec</button>
+        <button class="btn" onclick="camAction('settings')">Settings</button>
+        <button class="btn" onclick="camAction('space')">Space</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btn-sonar-connect" onclick="connectSonar()" style="border-color:#7c4dff;color:#7c4dff">Connect sonar</button>
+        <button class="btn" onclick="sonar('open')" style="border-color:#7c4dff;color:#7c4dff">Sonar ON</button>
+        <button class="btn" onclick="sonar('close')" style="border-color:#7c4dff;color:#7c4dff">Sonar OFF</button>
+        <button class="btn" onclick="sonar('temp')">Temp</button>
+        <button class="btn" onclick="sonar('battery')">Bat</button>
+      </div>
+      <small style="color:#607d9f;font-size:.7rem">Close Vision+ on tablet before connecting camera</small>
+    </div>
+
+    <div class="card">
+      <h2>Control</h2>
+      <div class="btn-row">
+        <select id="mode-sel" onchange="setMode(this.value)">
+          <option>STABILIZE</option>
+          <option>ACRO</option>
+          <option>ALT_HOLD</option>
+          <option>GUIDED</option>
+          <option>POSHOLD</option>
+          <option selected>MANUAL</option>
+          <option>SURFACE</option>
+        </select>
+        <button class="btn success" id="arm-btn" onclick="toggleArm()">ARM</button>
+        <button class="btn danger" onclick="send('/arm','POST',{arm:false})">DISARM</button>
+      </div>
+
+      <div id="joystick-area">
+        <div class="joystick-wrap">
+          <span class="joystick-label">PITCH / ROLL</span>
+          <div class="joystick" id="js-left">
+            <div class="joystick-dot" id="js-left-dot"></div>
+          </div>
+          <span class="joystick-label" id="js-left-val">P:0 R:0</span>
+        </div>
+        <div class="throttle-wrap">
+          <span class="joystick-label">THR</span>
+          <input type="range" id="throttle-slider" min="0" max="1000" value="500" oninput="updateThrottle(this.value)">
+          <span class="joystick-label" id="thr-val">500</span>
+        </div>
+        <div class="joystick-wrap">
+          <span class="joystick-label">YAW</span>
+          <div class="joystick" id="js-right" style="cursor:ew-resize;">
+            <div class="joystick-dot" id="js-right-dot"></div>
+          </div>
+          <span class="joystick-label" id="js-right-val">Y:0</span>
+        </div>
+      </div>
+
+      <div id="log"></div>
+    </div>
+
+  </div>
+
+  <!-- Right: Parameters -->
+  <div class="card" id="params-panel">
+    <h2>Parameters</h2>
+    <input type="text" id="param-search" placeholder="Search..." oninput="filterParams()">
+    <div id="param-count">-- / -- params</div>
+    <button class="btn" onclick="loadParams()" style="margin-bottom:8px;width:100%">&#x2193; Load params</button>
+    <div id="params-list"></div>
+  </div>
+
+</div>
+
+<script>
+const socket = io();
+let armed = false;
+let recording = false;
+let throttle = 500;
+let joystickData = {x:0, y:0, z:500, r:0};
+let jsInterval = null;
+let allParams = {};
+
+socket.on('status', d => {
+  const mav = d.mav, cam = d.cam, sonar = d.sonar;
+  document.getElementById('conn-dot').className = 'status-dot' + (mav ? ' on' : '');
+  document.getElementById('conn-text').textContent =
+    (mav ? 'FCU OK' : 'FCU Off') + ' | ' +
+    (cam ? 'CAM OK' : 'CAM Off') + ' | ' +
+    (sonar ? 'SONAR OK' : 'SONAR Off');
+  document.getElementById('btn-cam-connect').textContent  = cam   ? 'Cam connected'   : 'Connect camera';
+  document.getElementById('btn-cam-connect').className    = 'btn' + (cam ? ' active' : '');
+  document.getElementById('btn-sonar-connect').textContent= sonar ? 'Sonar connected' : 'Connect sonar';
+  document.getElementById('btn-sonar-connect').className  = 'btn' + (sonar ? ' active' : '');
+  if (mav && !d._init) log('FCU connected!', 'ok');
+});
+
+socket.on('telemetry', d => {
+  document.getElementById('mode-sel').value = d.mode;
+  armed = d.armed;
+  document.getElementById('armed-badge').style.display = d.armed ? 'inline' : 'none';
+  document.getElementById('arm-btn').textContent = d.armed ? 'DISARM' : 'ARM';
+  document.getElementById('arm-btn').className = d.armed ? 'btn danger' : 'btn success';
+});
+
+socket.on('attitude', d => {
+  document.getElementById('roll').textContent  = d.roll + '°';
+  document.getElementById('pitch').textContent = d.pitch + '°';
+  document.getElementById('yaw').textContent   = d.yaw + '°';
+  document.getElementById('yaw-val').textContent = d.yaw + '°';
+  document.getElementById('horizon').style.transform = 'rotate(' + d.roll + 'deg)';
+  document.getElementById('sky').style.height    = (50 - d.pitch) + '%';
+  document.getElementById('ground').style.height = (50 + d.pitch) + '%';
+  document.getElementById('compass-arrow').style.transform = 'rotate(' + d.yaw + 'deg)';
+});
+
+socket.on('battery', d => {
+  const pct = d.pct;
+  document.getElementById('bat-v').textContent   = d.v + 'V';
+  document.getElementById('bat-a').textContent   = d.a + 'A';
+  document.getElementById('bat-pct').textContent = pct + '%';
+  const bar = document.getElementById('bat-bar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct > 50 ? '#4caf50' : pct > 20 ? '#ffb300' : '#f44336';
+});
+
+socket.on('position', d => {
+  document.getElementById('depth').textContent = d.depth + 'm';
+  document.getElementById('vx').textContent = d.vx;
+  document.getElementById('vy').textContent = d.vy;
+  document.getElementById('vz').textContent = d.vz;
+});
+
+socket.on('ack', d => {
+  const results = ['ACCEPTED','TEMP_REJECTED','DENIED','UNSUPPORTED','FAILED','IN_PROGRESS'];
+  log('ACK cmd=' + d.cmd + ' -> ' + (results[d.result]||d.result), d.result===0?'ok':'err');
+});
+
+socket.on('param', d => {
+  allParams[d.id] = d.value;
+  if (d.index % 50 === 0 || d.index === d.count - 1) {
+    document.getElementById('param-count').textContent = (d.index+1) + ' / ' + d.count + ' params';
+    renderParams();
+  }
+});
+
+function makeJoystick(elem, dotElem, labelElem, axes) {
+  let active = false;
+  const r = elem.offsetWidth / 2;
+
+  function update(ex, ey) {
+    const rect = elem.getBoundingClientRect();
+    let dx = ex - rect.left - r;
+    let dy = ey - rect.top  - r;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > r - 14) { dx *= (r-14)/dist; dy *= (r-14)/dist; }
+    dotElem.style.left = (r + dx) + 'px';
+    dotElem.style.top  = (r + dy) + 'px';
+    const nx = Math.round(dx / (r-14) * 1000);
+    const ny = Math.round(dy / (r-14) * 1000);
+    axes(nx, ny);
+    labelElem.textContent = axes.label(nx, ny);
+  }
+
+  function reset() {
+    dotElem.style.left = '50%'; dotElem.style.top = '50%';
+    axes(0, 0);
+    labelElem.textContent = axes.label(0, 0);
+  }
+
+  elem.addEventListener('mousedown',  e => { active=true; update(e.clientX, e.clientY); });
+  elem.addEventListener('touchstart', e => { active=true; update(e.touches[0].clientX, e.touches[0].clientY); }, {passive:true});
+  window.addEventListener('mousemove',  e => { if(active) update(e.clientX, e.clientY); });
+  window.addEventListener('touchmove',  e => { if(active) update(e.touches[0].clientX, e.touches[0].clientY); }, {passive:true});
+  window.addEventListener('mouseup',  () => { if(active){ active=false; reset(); }});
+  window.addEventListener('touchend', () => { if(active){ active=false; reset(); }});
+}
+
+const jslAxes = (nx, ny) => { joystickData.x = -ny; joystickData.y = nx; sendJoystick(); };
+jslAxes.label = (nx, ny) => 'P:' + (-ny) + ' R:' + nx;
+makeJoystick(document.getElementById('js-left'), document.getElementById('js-left-dot'), document.getElementById('js-left-val'), jslAxes);
+
+const jsrAxes = (nx, ny) => { joystickData.r = nx; sendJoystick(); };
+jsrAxes.label = (nx, ny) => 'Y:' + nx;
+makeJoystick(document.getElementById('js-right'), document.getElementById('js-right-dot'), document.getElementById('js-right-val'), jsrAxes);
+
+function updateThrottle(v) {
+  throttle = parseInt(v);
+  joystickData.z = throttle;
+  document.getElementById('thr-val').textContent = throttle;
+  sendJoystick();
+}
+
+function sendJoystick() {
+  socket.emit('joystick', joystickData);
+}
+
+window.addEventListener('gamepadconnected', e => {
+  log('Gamepad connected: ' + e.gamepad.id, 'info');
+  if (!jsInterval) {
+    jsInterval = setInterval(() => {
+      const gp = navigator.getGamepads()[0];
+      if (!gp) return;
+      const x = Math.round(gp.axes[1] * -1000);
+      const y = Math.round(gp.axes[0] * 1000);
+      const r = Math.round(gp.axes[2] * 1000);
+      const z = Math.round((1 - gp.axes[3]) * 500);
+      joystickData = {x, y, z, r};
+      sendJoystick();
+      document.getElementById('js-left-val').textContent = 'P:' + x + ' R:' + y;
+      document.getElementById('js-right-val').textContent = 'Y:' + r;
+      document.getElementById('thr-val').textContent = z;
+      document.getElementById('throttle-slider').value = z;
+    }, 50);
+  }
+});
+window.addEventListener('gamepaddisconnected', e => {
+  log('Gamepad disconnected', 'err');
+  clearInterval(jsInterval); jsInterval = null;
+});
+
+function toggleArm() {
+  socket.emit('arm', {arm: !armed});
+}
+
+function setMode(m) {
+  socket.emit('set_mode', {mode: m});
+  log('Mode -> ' + m, 'info');
+}
+
+function toggleRec() {
+  recording = !recording;
+  camAction(recording ? 'rec_start' : 'rec_stop');
+  document.getElementById('rec-btn').textContent = recording ? 'Stop' : 'Rec';
+}
+
+function camAction(action) {
+  fetch('/cam/' + action, {method:'POST'})
+    .then(r=>r.json()).then(d=>log(JSON.stringify(d),'info'));
+}
+
+function reloadVideo() {
+  const img = document.getElementById('video-feed');
+  img.style.display = 'block';
+  document.getElementById('no-vid').style.display = 'none';
+  img.src = '/video?' + Date.now();
+}
+
+function loadParams() {
+  allParams = {};
+  document.getElementById('params-list').innerHTML = '';
+  document.getElementById('param-count').textContent = 'Loading...';
+  fetch('/params').then(r=>r.json()).then(d=>log('Param request sent','info'));
+}
+
+function renderParams() {
+  const search = document.getElementById('param-search').value.toUpperCase();
+  const list = document.getElementById('params-list');
+  list.innerHTML = '';
+  let count = 0;
+  for (const [id, val] of Object.entries(allParams).sort()) {
+    if (search && !id.includes(search)) continue;
+    count++;
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const v = typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(4)) : val;
+    row.innerHTML =
+      '<span class="param-name" title="' + id + '">' + id + '</span>' +
+      '<input class="param-input" id="pi-' + id + '" value="' + v + '" type="text">' +
+      '<button class="param-set-btn" onclick="setParam(\'' + id + '\')">SET</button>';
+    list.appendChild(row);
+  }
+  document.getElementById('param-count').textContent = count + ' / ' + Object.keys(allParams).length + ' params';
+}
+
+function filterParams() { renderParams(); }
+
+function connectCam() {
+  log('Connecting camera (close Vision+ first)...', 'info');
+  fetch('/cam/connect', {method:'POST'})
+    .then(r=>r.json()).then(d=>{
+      if (d.ok) { log('Camera connected! token=' + d.token, 'ok'); reloadVideo(); }
+      else log('Camera: ' + d.error, 'err');
+    });
+}
+
+function connectSonar() {
+  log('Connecting sonar...', 'info');
+  fetch('/sonar/connect', {method:'POST'})
+    .then(r=>r.json()).then(d=>{
+      if (d.ok) log('Sonar connected!', 'ok');
+      else log('Sonar: ' + d.error, 'err');
+    });
+}
+
+function sonar(action) {
+  fetch('/sonar/' + action, {method:'POST'})
+    .then(r=>r.json()).then(d=>log('Sonar ' + action + ': ' + (d.raw||d.error), d.error?'err':'ok'));
+}
+
+function setParam(id) {
+  const val = document.getElementById('pi-' + id).value;
+  fetch('/param/set', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,value:val})})
+    .then(r=>r.json()).then(d=>log('SET ' + id + '=' + val,'ok'));
+}
+
+function send(url, method, body) {
+  fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>log(JSON.stringify(d),'info'));
+}
+
+function log(msg, cls) {
+  cls = cls || '';
+  const l = document.getElementById('log');
+  const d = document.createElement('div');
+  d.className = 'log-line ' + cls;
+  d.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+  l.appendChild(d);
+  l.scrollTop = l.scrollHeight;
+  if (l.children.length > 100) l.removeChild(l.firstChild);
+}
+
+fetch('/state').then(r=>r.json()).then(d=>{
+  if (d.battery_pct) socket.emit('battery', d);
+  log('Interface ready','info');
+});
+</script>
+</body>
+</html>

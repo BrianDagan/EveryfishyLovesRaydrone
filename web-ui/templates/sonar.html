@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerRay — Sonar PSE</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a12; color: #e0e8ff; font-family: 'Courier New', monospace; height: 100vh; overflow: hidden; }
+
+  #header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: #111827; border-bottom: 1px solid #1e3a5f; }
+  #header h1 { font-size: 16px; color: #4fc3f7; letter-spacing: 2px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot-green { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+  .dot-red   { background: #f44336; box-shadow: 0 0 6px #f44336; }
+  .dot-yellow{ background: #ffc107; box-shadow: 0 0 6px #ffc107; }
+  #conn-status { font-size: 12px; }
+
+  #main { display: flex; height: calc(100vh - 45px); }
+
+  #sidebar { width: 180px; background: #0d1117; border-right: 1px solid #1e3a5f; display: flex; flex-direction: column; padding: 12px 10px; gap: 14px; flex-shrink: 0; }
+  .metric { background: #111827; border: 1px solid #1e3a5f; border-radius: 6px; padding: 10px; }
+  .metric .label { font-size: 10px; color: #64748b; letter-spacing: 1px; text-transform: uppercase; }
+  .metric .value { font-size: 28px; color: #4fc3f7; font-weight: bold; margin-top: 4px; }
+  .metric .unit  { font-size: 11px; color: #94a3b8; }
+
+  #bat-bar { height: 6px; background: #1e3a5f; border-radius: 3px; margin-top: 6px; }
+  #bat-fill { height: 100%; border-radius: 3px; background: #4caf50; transition: width 0.5s; }
+
+  #scale { width: 52px; background: #0d1117; display: flex; flex-direction: column; justify-content: space-between; padding: 4px 4px 4px 0; border-right: 1px solid #1e3a5f; font-size: 10px; color: #475569; text-align: right; position: relative; flex-shrink: 0; }
+  #scale .tick { position: relative; padding-right: 6px; }
+  #scale .tick::after { content: ''; position: absolute; right: 0; top: 50%; width: 4px; height: 1px; background: #334155; }
+
+  #waterfall-wrap { flex: 1; position: relative; overflow: hidden; }
+  #wf-canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  #depth-line { position: absolute; left: 0; right: 0; height: 2px; background: #f44336; box-shadow: 0 0 8px #f44336; pointer-events: none; transition: top 0.3s; }
+  #depth-label { position: absolute; right: 6px; background: #f44336; color: white; font-size: 10px; padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; }
+
+  #cursor-line { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.4); pointer-events: none; }
+  #cursor-label { position: absolute; right: 6px; background: rgba(0,0,0,0.7); color: #e0e8ff; font-size: 10px; padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; }
+
+  #controls { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; }
+  button { padding: 6px 14px; border: 1px solid #1e3a5f; border-radius: 4px; background: #111827; color: #e0e8ff; font-size: 12px; cursor: pointer; font-family: inherit; }
+  button:hover { background: #1e3a5f; border-color: #4fc3f7; }
+  button.active { background: #1e3a5f; border-color: #4fc3f7; color: #4fc3f7; }
+  button.danger { border-color: #f44336; color: #f44336; }
+  button.danger:hover { background: #f44336; color: white; }
+
+  #mode-badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); border: 1px solid #1e3a5f; padding: 3px 8px; border-radius: 4px; font-size: 11px; }
+  #mode-badge.demo { border-color: #ffc107; color: #ffc107; }
+  #mode-badge.live { border-color: #4caf50; color: #4caf50; }
+
+  #gain-wrap { display: flex; flex-direction: column; gap: 4px; }
+  #gain-wrap label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+  #gain-slider { width: 100%; accent-color: #4fc3f7; }
+
+  #range-wrap { display: flex; flex-direction: column; gap: 4px; }
+  #range-wrap label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+  .range-btn { flex: 1; padding: 4px 2px; font-size: 11px; text-align: center; }
+  #range-btns { display: flex; gap: 4px; }
+
+  #toast { position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); background: #1e3a5f; color: #e0e8ff; padding: 6px 16px; border-radius: 20px; font-size: 12px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>&#x2B21; SONAR PSE</h1>
+  <div id="conn-status">
+    <span class="status-dot dot-red" id="dot"></span>
+    <span id="conn-text">Disconnected</span>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button onclick="connectSonar()">Connect</button>
+    <a href="/" style="color:#64748b;font-size:12px;text-decoration:none;padding:6px;">&#x2190; PowerRay</a>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div class="metric" id="m-depth">
+      <div class="label">Depth</div>
+      <div class="value" id="v-depth">&#x2014;</div>
+      <div class="unit">meters</div>
+    </div>
+    <div class="metric">
+      <div class="label">Temperature</div>
+      <div class="value" id="v-temp">&#x2014;</div>
+      <div class="unit">&deg;C</div>
+    </div>
+    <div class="metric">
+      <div class="label">Sonar battery</div>
+      <div class="value" id="v-bat">&#x2014;</div>
+      <div class="unit">%</div>
+      <div id="bat-bar"><div id="bat-fill" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="label">FW version</div>
+      <div class="value" style="font-size:13px;margin-top:6px" id="v-ver">&#x2014;</div>
+    </div>
+
+    <div id="gain-wrap">
+      <label>Gain <span id="gain-val">50</span>%</label>
+      <input type="range" id="gain-slider" min="0" max="100" value="50" oninput="onGain(this.value)">
+    </div>
+
+    <div id="range-wrap">
+      <label>Range</label>
+      <div id="range-btns">
+        <button class="range-btn" onclick="setRange(5,this)">5m</button>
+        <button class="range-btn active" onclick="setRange(10,this)">10m</button>
+        <button class="range-btn" onclick="setRange(20,this)">20m</button>
+        <button class="range-btn" onclick="setRange(40,this)">40m</button>
+      </div>
+    </div>
+
+    <button id="btn-demo" class="active" onclick="toggleDemo()">DEMO mode</button>
+    <button class="danger" onclick="stopStream()">&#x23F9; Stop stream</button>
+  </div>
+
+  <div id="scale"></div>
+
+  <div id="waterfall-wrap">
+    <canvas id="wf-canvas"></canvas>
+    <div id="mode-badge" class="demo">DEMO</div>
+    <div id="depth-line" style="top:50%"></div>
+    <div id="depth-label" style="top:calc(50% - 8px)">&#x2014; m</div>
+    <div id="cursor-line" style="display:none"></div>
+    <div id="cursor-label" style="display:none"></div>
+    <div id="controls">
+      <button onclick="startStream()">&#x25B6; Start stream</button>
+      <button onclick="getInfo()">&#x2139; Info</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let MAX_DEPTH = 10;
+let gain = 50;
+let demoMode = true;
+let connected = false;
+let running = false;
+let depth_m = 0;
+let demoInterval = null;
+
+const canvas = document.getElementById('wf-canvas');
+const ctx = canvas.getContext('2d');
+let wfWidth = 0, wfHeight = 0;
+let colData = [];
+
+function resizeCanvas() {
+  const wrap = document.getElementById('waterfall-wrap');
+  wfWidth  = wrap.clientWidth;
+  wfHeight = wrap.clientHeight;
+  canvas.width  = wfWidth;
+  canvas.height = wfHeight;
+  buildScale();
+}
+
+function buildScale() {
+  const sc = document.getElementById('scale');
+  sc.innerHTML = '';
+  const steps = 6;
+  for (let i = 0; i <= steps; i++) {
+    const d = (MAX_DEPTH * i / steps).toFixed(1);
+    const div = document.createElement('div');
+    div.className = 'tick';
+    div.textContent = d + 'm';
+    sc.appendChild(div);
+  }
+}
+
+function depthColor(v) {
+  if (v < 50)  { const t=v/50;   return [0, Math.round(t*50), Math.round(t*100)]; }
+  if (v < 120) { const t=(v-50)/70;   return [0, Math.round(50+t*130), Math.round(100+t*100)]; }
+  if (v < 180) { const t=(v-120)/60;  return [Math.round(t*200), Math.round(180+t*60), Math.round(200-t*200)]; }
+  if (v < 230) { const t=(v-180)/50;  return [Math.round(200+t*55), Math.round(240-t*100), 0]; }
+  const t=(v-230)/25; return [255, Math.round(140+t*115), Math.round(t*255)];
+}
+
+function drawWaterfall(newCol) {
+  if (!wfWidth || !wfHeight) return;
+  if (colData.length >= wfWidth) colData.shift();
+  colData.push(newCol);
+
+  const imageData = ctx.createImageData(wfWidth, wfHeight);
+  const data = imageData.data;
+
+  for (let x = 0; x < colData.length; x++) {
+    const col = colData[x];
+    for (let y = 0; y < wfHeight; y++) {
+      const sampleIdx = Math.floor(y * col.length / wfHeight);
+      const v = col[sampleIdx] || 0;
+      const [r, g, b] = depthColor(v);
+      const idx = (y * wfWidth + x) * 4;
+      data[idx]   = r;
+      data[idx+1] = g;
+      data[idx+2] = b;
+      data[idx+3] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  updateDepthLine();
+}
+
+function updateDepthLine() {
+  if (depth_m <= 0) return;
+  const pct = depth_m / MAX_DEPTH;
+  const py = Math.round(pct * wfHeight);
+  document.getElementById('depth-line').style.top = py + 'px';
+  document.getElementById('depth-label').style.top = (py - 8) + 'px';
+  document.getElementById('depth-label').textContent = depth_m.toFixed(1) + ' m';
+  document.getElementById('v-depth').textContent = depth_m.toFixed(1);
+}
+
+let demoPhase = 0;
+let demoBottom = 6.0;
+
+function demoColumn() {
+  const col = new Array(wfHeight).fill(0);
+  demoPhase += 0.05;
+  demoBottom = 4 + 2 * Math.sin(demoPhase * 0.3);
+  const bottomPx = Math.round(demoBottom / MAX_DEPTH * wfHeight);
+
+  for (let i = 0; i < wfHeight; i++) {
+    const dist = Math.abs(i - bottomPx);
+    if (dist < 3) {
+      col[i] = Math.round(180 + Math.random() * 75);
+    } else if (dist < 8) {
+      col[i] = Math.round((80 - dist * 8) * (0.8 + 0.4 * Math.random()));
+    } else {
+      col[i] = Math.round(Math.random() * 20);
+    }
+  }
+
+  if (Math.random() < 0.15) {
+    const fishY = Math.round(Math.random() * bottomPx * 0.85);
+    const fishSize = 2 + Math.floor(Math.random() * 4);
+    for (let f = Math.max(0, fishY - fishSize); f < Math.min(wfHeight, fishY + fishSize); f++) {
+      const dist2 = Math.abs(f - fishY);
+      col[f] = Math.round(120 + (fishSize - dist2) * 20 + Math.random() * 30);
+    }
+  }
+
+  depth_m = demoBottom + (Math.random() - 0.5) * 0.2;
+  return col;
+}
+
+function startDemo() {
+  if (demoInterval) clearInterval(demoInterval);
+  demoInterval = setInterval(() => {
+    if (!wfHeight) return;
+    drawWaterfall(demoColumn());
+  }, 80);
+}
+
+function stopDemo() {
+  if (demoInterval) { clearInterval(demoInterval); demoInterval = null; }
+}
+
+function toggleDemo() {
+  demoMode = !demoMode;
+  const btn = document.getElementById('btn-demo');
+  const badge = document.getElementById('mode-badge');
+  if (demoMode) {
+    btn.classList.add('active');
+    btn.textContent = 'DEMO mode';
+    badge.className = 'demo'; badge.textContent = 'DEMO';
+    startDemo();
+  } else {
+    btn.classList.remove('active');
+    btn.textContent = 'LIVE mode';
+    badge.className = 'live'; badge.textContent = 'LIVE';
+    stopDemo();
+  }
+}
+
+async function connectSonar() {
+  toast('Connecting to PSE sonar...');
+  try {
+    const r = await fetch('/pse/connect', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      setConnected(true);
+      toast('PSE connected! Banner: ' + (d.banner || ''));
+      await getSonarInfo();
+    } else {
+      setConnected(false);
+      toast('Error: ' + (d.error || 'connection failed'));
+    }
+  } catch(e) {
+    toast('Network error: ' + e.message);
+  }
+}
+
+async function startStream() {
+  if (!connected) { toast('Sonar not connected'); return; }
+  try {
+    const r = await fetch('/pse/open', { method: 'POST' });
+    const d = await r.json();
+    toast(d.error ? 'Error: ' + d.error : 'Stream started (cmd 0x10 sent)');
+    running = !d.error;
+  } catch(e) { toast('Error: ' + e.message); }
+}
+
+async function stopStream() {
+  try {
+    await fetch('/pse/close', { method: 'POST' });
+    running = false;
+    toast('Stream stopped');
+  } catch(e) {}
+}
+
+async function getSonarInfo() {
+  try {
+    const r = await fetch('/pse/version', { method: 'POST' });
+    const d = await r.json();
+    if (!d.error && d.version) document.getElementById('v-ver').textContent = d.version;
+  } catch(e) {}
+  try {
+    const r = await fetch('/pse/battery', { method: 'POST' });
+    const d = await r.json();
+    if (d.bat !== undefined) {
+      document.getElementById('v-bat').textContent = d.bat;
+      document.getElementById('bat-fill').style.width = d.bat + '%';
+      document.getElementById('bat-fill').style.background = d.bat > 40 ? '#4caf50' : d.bat > 20 ? '#ffc107' : '#f44336';
+    }
+  } catch(e) {}
+  try {
+    const r = await fetch('/pse/temp', { method: 'POST' });
+    const d = await r.json();
+    if (d.temp !== undefined) document.getElementById('v-temp').textContent = d.temp.toFixed(1);
+  } catch(e) {}
+}
+
+async function getInfo() {
+  if (connected) await getSonarInfo();
+  else { toast('Not connected — trying...'); connectSonar(); }
+}
+
+async function pollSonar() {
+  if (!connected || !running || demoMode) return;
+  try {
+    const r = await fetch('/pse/data');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.col && d.col.length) {
+      drawWaterfall(d.col);
+      if (d.depth !== undefined) depth_m = d.depth;
+      if (d.bat !== undefined) {
+        document.getElementById('v-bat').textContent = d.bat;
+        document.getElementById('bat-fill').style.width = d.bat + '%';
+      }
+      if (d.temp !== undefined) document.getElementById('v-temp').textContent = d.temp.toFixed(1);
+    }
+  } catch(e) {}
+}
+
+function setConnected(ok) {
+  connected = ok;
+  document.getElementById('dot').className = 'status-dot ' + (ok ? 'dot-green' : 'dot-red');
+  document.getElementById('conn-text').textContent = ok ? 'PSE sonar connected' : 'Disconnected';
+  if (ok && demoMode) toggleDemo();
+}
+
+function setRange(m, btn) {
+  MAX_DEPTH = m;
+  buildScale();
+  document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  colData = [];
+}
+
+function onGain(v) {
+  gain = parseInt(v);
+  document.getElementById('gain-val').textContent = gain;
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.opacity = 1;
+  setTimeout(() => t.style.opacity = 0, 2500);
+}
+
+const wfWrap = document.getElementById('waterfall-wrap');
+wfWrap.addEventListener('mousemove', (e) => {
+  const rect = wfWrap.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const d = (y / rect.height * MAX_DEPTH).toFixed(2);
+  const cl = document.getElementById('cursor-line');
+  const clab = document.getElementById('cursor-label');
+  cl.style.display = 'block'; cl.style.top = y + 'px';
+  clab.style.display = 'block'; clab.style.top = (y - 8) + 'px';
+  clab.textContent = d + ' m';
+});
+wfWrap.addEventListener('mouseleave', () => {
+  document.getElementById('cursor-line').style.display = 'none';
+  document.getElementById('cursor-label').style.display = 'none';
+});
+
+window.addEventListener('load', () => {
+  resizeCanvas();
+  startDemo();
+  setInterval(pollSonar, 100);
+  setInterval(() => { if (connected) getSonarInfo(); }, 10000);
+});
+window.addEventListener('resize', resizeCanvas);
+</script>
+</body>
+</html>
