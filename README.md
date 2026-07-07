@@ -40,24 +40,81 @@ connected:
 
 ---
 
-## Quick start
+## Running it (future-you field guide)
 
-### Requirements
+> Written so that a year from now you can get the sub driving again in ~5 minutes
+> without re-reverse-engineering anything.
+
+### 0. One-time setup (needs internet)
 
 ```bash
-pip install flask flask-socketio pymavlink opencv-python
+pip install -r web-ui/requirements.txt
+# or: pip install flask flask-socketio pymavlink opencv-python
 ```
 
-### Run the web UI
+Everything the browser needs (including the Socket.IO client) is vendored in this
+repo, so after this step the whole thing runs **fully offline**.
+
+### 1. Power on & join the drone's WiFi
+
+Turn on the PowerRay + its base station, then connect this PC's WiFi to the base
+station AP — **`PRA_Station_488057`** (stock PowerRay APs are `PRA_Station_xxxxxx`).
+
+> ⚠️ This AP has **no internet**. You *will* lose connectivity while connected —
+> that's expected. The control UI is built to work with zero internet.
+
+### 2. Sanity-check the network (optional but recommended)
+
+From the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\interrogate_base_station.ps1
+```
+
+You're looking for **`:20002 OPEN`** on `192.168.1.12` — that's the flight
+controller, and its presence means the sub is driveable. The gateway it prints
+(usually `192.168.1.11`) is the base station.
+
+### 3. Free the camera (only if you want video)
+
+Close the PowerVision **Vision+** app on the tablet/phone. The camera (Ambarella)
+only allows **one** client at a time, so the app and this UI fight over it.
+
+### 4. Start the server & open the UI
 
 ```bash
 cd web-ui
 python -u server.py
 ```
 
-Then open **http://localhost:5000** in your browser.
+Open **http://localhost:5000**, then **hard-refresh once (Ctrl+F5)** to be sure
+you're on the latest page. Watch the terminal for `[MAV] Connecte sysid=…` — that
+confirms the flight-controller link is up. The status pill should read **`FCU OK`**
+and ARM / mode / joystick will respond.
 
-**Important**: If you want camera access, close the Vision+ app on the tablet first. The Ambarella daemon only allows one client at a time.
+---
+
+### 🛟 Gotcha: UI says "Disconnected" (buttons dead) but video works fine
+
+This is the one failure mode worth remembering. It means the browser's realtime
+channel (**Socket.IO**) didn't connect, so telemetry never arrives and the control
+buttons (ARM / mode / joystick — they send over the socket) do nothing, *while* the
+video keeps working because it's a plain MJPEG `<img>` that needs no JavaScript.
+
+**Cause:** something made the Socket.IO **client script** fail to load. The classic
+trigger is loading it from a CDN, which is unreachable on the drone's offline AP.
+
+**Fix / prevention:**
+
+- The client is vendored at **`web-ui/static/socket.io.min.js`** and loaded via
+  `/static/…` in `index.html` — **never** re-point it at `cdn.socket.io` or any CDN.
+- If it happens anyway: **hard-refresh (Ctrl+F5)** to drop a cached page, and
+  confirm `web-ui/static/socket.io.min.js` still exists.
+- If the terminal shows `[MAV] Connecte sysid=…`, the drone link is fine and the
+  problem is 100% browser-side.
+
+**Golden rule:** everything the browser loads must be local. No CDNs, ever — the
+lake has no WiFi.
 
 ---
 
