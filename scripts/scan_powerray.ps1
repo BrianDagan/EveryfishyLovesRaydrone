@@ -1,5 +1,6 @@
 # Port scan for PowerRay submarine
-# Connect to PRA_Station_400314 WiFi first
+# Connect to the drone's WiFi AP first (this unit: PRA_Station_488057; PowerRay stock: PRA_Station_xxxxxx)
+# Tip: run scripts\interrogate_base_station.ps1 for gateway auto-detect + banner grab.
 
 $targets = @(
     @{ip='192.168.1.11'; label='Base station (HLK-RM08K)'},
@@ -11,7 +12,7 @@ $targets = @(
 $ports = @(23, 80, 111, 554, 7700, 7878, 7979, 8080, 8081, 8787, 9888, 20002)
 
 Write-Host "=== PowerRay Network Scan ===" -ForegroundColor Magenta
-Write-Host "Make sure you are connected to PRA_Station_400314 WiFi`n"
+Write-Host "Make sure you are connected to the drone's WiFi (PRA_Station_488057)`n"
 
 foreach ($target in $targets) {
     Write-Host "$($target.ip) — $($target.label)" -ForegroundColor Cyan

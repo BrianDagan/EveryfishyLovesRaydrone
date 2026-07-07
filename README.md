@@ -25,7 +25,11 @@ This is personal reverse engineering / maker work. We own the submarine, we docu
 
 ## Network map
 
-The PowerRay creates a WiFi AP (`PRA_Station_400314`). Once connected:
+The PowerRay creates a WiFi AP. The SSID varies by unit/firmware — stock is
+`PRA_Station_xxxxxx`; **this unit is `PRA_Station_488057`** (a stock PRA unit, so
+its base station should sit at the usual `192.168.1.11` — but run
+`scripts\interrogate_base_station.ps1` first to auto-detect the gateway). Once
+connected:
 
 | IP | Role | Key ports |
 |----|------|-----------|
@@ -76,11 +80,12 @@ Quick scripts for testing without the full UI:
 
 | Script | What it does |
 |--------|-------------|
+| `interrogate_base_station.ps1` | **Start here** — auto-detects the AP/gateway (the base station), scans it + all known device IPs, and grabs banners |
 | `powerray_telemetry.ps1` | Decode and print MAVLink stream |
 | `powerray_cam.ps1` | Test camera JSON API (7878) |
 | `powerray_connect.ps1` | Basic TCP connection test |
 | `ray_ctrl.ps1` | MAVLink control sequence test |
-| `scan_powerray.ps1` | Port scan the submarine |
+| `scan_powerray.ps1` | Quick fixed-IP port scan of the submarine |
 
 ---
 

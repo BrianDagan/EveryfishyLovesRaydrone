@@ -32,3 +32,6 @@ desktop.ini
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# Local debug logs / troubleshooting captures
+troubleshooting/
