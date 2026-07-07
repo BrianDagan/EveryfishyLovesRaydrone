@@ -1,4 +1,6 @@
-# erebus-io-powerray
+# EveryfishyLovesRaydrone
+
+*An offline-first, Copilot-built web control plane for the **PowerVision PowerRay** underwater drone — no Vision+ app, no internet required.*
 
 A Python + PowerShell toolkit for controlling the **PowerVision PowerRay** underwater drone without the official Vision+ Android app.
 
