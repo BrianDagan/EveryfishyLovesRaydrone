@@ -16,6 +16,10 @@ This is personal reverse engineering / maker work. We own the submarine, we docu
 |---------|--------|
 | MAVLink telemetry (50 Hz) | ✅ Fully working |
 | Navigation control (ARM / SET_MODE / joystick) | ✅ Fully working |
+| WASD keyboard piloting (laptop) | ✅ Fully working |
+| Emergency Surface + Depth Hold | ✅ Fully working (SURFACE / ALT_HOLD modes) |
+| Offline satellite map (Leaflet + cached Esri tiles) | ✅ Fully working |
+| Dead-reckoned track + heading marker + RTH guidance | ✅ Working (no GPS — relative to a set Home) |
 | 358 PX4 parameter read + write | ✅ Fully working |
 | Ambarella camera JSON API | ✅ Fully working (token/session) |
 | RTSP live video in browser | ✅ Working (requires camera session open) |
@@ -122,14 +126,51 @@ lake has no WiFi.
 
 ## Web UI features
 
-- **Attitude indicator** — animated artificial horizon (roll/pitch)
-- **Compass** — rotating, driven by live MAVLink yaw
-- **Battery** — voltage, current, percentage with color bar
-- **Navigation control** — ARM/DISARM, mode selector, dual joystick (mouse + Gamepad API)
-- **Camera** — connect, photo, record, viewfinder toggle
-- **Live video** — RTSP → OpenCV → MJPEG relay in the browser
-- **Parameters** — search + live SET for all 358 PX4 params
-- **Sonar UI** — at `/sonar_ui`, with waterfall canvas and demo mode
+The cockpit is a single self-contained page (`web-ui/templates/index.html`) — a
+"glass cockpit" that runs **fully offline** on the drone's WiFi.
+
+- **Swappable Camera / Map** — a large primary view with a picture-in-picture
+  corner; **click the PiP to swap** camera ⇄ map. Both stay live.
+- **Always-on HUD** — artificial horizon (roll/pitch), heading tape, depth,
+  speed, battery, and armed/mode, overlaid on the primary view.
+- **WASD keyboard piloting** — drive from the laptop (see keymap below). Streams
+  `MANUAL_CONTROL` at 20 Hz; neutral-on-release; requires ARMED + toggle on.
+- **Offline satellite map** — Leaflet + locally cached Esri World Imagery tiles
+  (pre-cache a ~3 mi radius with **Cache Area** before you go out).
+- **Dead-reckoned tracking** — no GPS on this vehicle, so set **Home** at your
+  launch point (click the map); the drone is then placed by `LOCAL_POSITION_NED`
+  offset, shown as a **heading arrow** with a fading track.
+- **Return-to-Home guidance** — `RTH` shows bearing + distance back to Home and a
+  relative-turn arrow. (Dead-reckoned guidance for the pilot — not a GPS autopilot.)
+- **Emergency Surface** — one button → `SURFACE` mode (+ auto-arm). **Depth Hold** → `ALT_HOLD`.
+- **Navigation control** — ARM/DISARM, mode selector, dual on-screen joysticks + Gamepad API.
+- **Camera** — connect, photo, record, viewfinder; **Live video** via RTSP → OpenCV → MJPEG.
+- **Parameters** — search + live SET for all 358 PX4 params.
+- **Sonar UI** — at `/sonar_ui`, with waterfall canvas and demo mode.
+
+### Keyboard piloting (WASD)
+
+Enable **Keyboard Control** (top of the panel) — requires the drone to be **ARMED**.
+
+| Key | Action | | Key | Action |
+|-----|--------|-|-----|--------|
+| **W / S** | forward / reverse | | **R / F** | ascend / descend |
+| **A / D** | yaw left / right | | **Shift** | boost (full throttle) |
+| **Q / E** | strafe left / right | | **Space** | all-stop (neutral) |
+
+Keys stop sending the instant you release them (and on window blur) — a built-in failsafe.
+
+### Testing without the drone
+
+A MAVLink simulator lets you exercise the whole UI on your desk:
+
+```bash
+python web-ui/tools/fake_fc.py          # simulated PowerRay FC on 127.0.0.1:20002
+# then, in another shell:
+$env:FCU_IP='127.0.0.1'; python web-ui/server.py
+```
+
+Or run the automated smoke test: `python web-ui/tools/test_webui.py`.
 
 ---
 

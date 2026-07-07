@@ -35,3 +35,6 @@ desktop.ini
 
 # Local debug logs / troubleshooting captures
 troubleshooting/
+
+# Cached map tiles (pre-cache locally before going offline; do not commit the cache)
+web-ui/tiles/

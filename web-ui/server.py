@@ -2,20 +2,21 @@
 PowerRay Web UI — Backend v2
 MAVLink FCU + Camera Ambarella JSON + Video stream + Sonar
 """
-import threading, time, math, socket, json, struct
+import threading, time, math, socket, json, struct, os
 from flask import Flask, render_template, Response, request, jsonify
 from flask_socketio import SocketIO, emit
 from pymavlink import mavutil
+import tile_cache
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'powerray'
 sio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
 
 # --- Config ---
-FCU_IP   = '192.168.1.12';  FCU_PORT  = 20002
-CAM_IP   = '192.168.1.100'; CAM_CMD   = 7878; CAM_DATA = 8787; CAM_HTTP = 80
+FCU_IP   = os.environ.get('FCU_IP', '192.168.1.12');  FCU_PORT  = int(os.environ.get('FCU_PORT', '20002'))
+CAM_IP   = os.environ.get('CAM_IP', '192.168.1.100'); CAM_CMD   = 7878; CAM_DATA = 8787; CAM_HTTP = 80
 SONAR_IP = '192.168.1.100'; SONAR_PORT = 7700
-PSE_IP   = '192.168.1.1';  PSE_PORT   = 5000   # Sonar PSE_230252
+PSE_IP   = os.environ.get('PSE_IP', '192.168.1.1');  PSE_PORT   = 5000   # Sonar PSE_230252
 
 MODES = {0:'STABILIZE',1:'ACRO',2:'ALT_HOLD',3:'AUTO',
          4:'GUIDED',7:'CIRCLE',9:'SURFACE',16:'POSHOLD',19:'MANUAL'}
@@ -29,13 +30,14 @@ state = {
     'armed': False,
     'mode': 'UNKNOWN',
     'custom_mode': 0,
-    'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+    'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0, 'heading': 0, 'speed': 0.0,
     'battery_v': 0.0, 'battery_a': 0.0, 'battery_pct': 0,
-    'depth': 0.0, 'vx': 0.0, 'vy': 0.0, 'vz': 0.0,
+    'depth': 0.0, 'x': 0.0, 'y': 0.0, 'vx': 0.0, 'vy': 0.0, 'vz': 0.0,
     'params': {},
 }
 mav = None
 mav_lock = threading.Lock()
+_seen_vfr_hud = False
 
 # ═══════════════════════════════════════════
 # MAVLink
@@ -66,6 +68,7 @@ def mav_thread():
         time.sleep(3)
 
 def mav_loop(m):
+    global _seen_vfr_hud
     last_hb = 0
     while True:
         now = time.time()
@@ -92,7 +95,8 @@ def mav_loop(m):
             state['roll']  = round(math.degrees(msg.roll),  1)
             state['pitch'] = round(math.degrees(msg.pitch), 1)
             state['yaw']   = round(math.degrees(msg.yaw),   1)
-            broadcast('attitude', {'roll': state['roll'], 'pitch': state['pitch'], 'yaw': state['yaw']})
+            state['heading'] = state['heading'] if _seen_vfr_hud else int((state['yaw'] + 360) % 360)
+            broadcast('attitude', {'roll': state['roll'], 'pitch': state['pitch'], 'yaw': state['yaw'], 'heading': state['heading']})
 
         elif t == 'SYS_STATUS':
             state['battery_v']   = round(msg.voltage_battery / 1000, 2)
@@ -102,11 +106,18 @@ def mav_loop(m):
 
         elif t == 'LOCAL_POSITION_NED':
             state['depth'] = round(-msg.z,  2)
+            state['x']     = round(msg.x,   2)
+            state['y']     = round(msg.y,   2)
             state['vx']    = round(msg.vx,  2)
             state['vy']    = round(msg.vy,  2)
             state['vz']    = round(msg.vz,  2)
-            broadcast('position', {'depth': state['depth'],
-                                   'vx': state['vx'], 'vy': state['vy'], 'vz': state['vz']})
+            broadcast('position', {'depth': state['depth'], 'x': state['x'], 'y': state['y'],
+                                   'vx': state['vx'], 'vy': state['vy'], 'vz': state['vz'], 'speed': state['speed']})
+
+        elif t == 'VFR_HUD':
+            state['heading'] = int(msg.heading) % 360
+            state['speed'] = round(msg.groundspeed, 2)
+            _seen_vfr_hud = True
 
         elif t == 'COMMAND_ACK':
             results = ['ACCEPTED','TEMP_REJECTED','DENIED','UNSUPPORTED','FAILED','IN_PROGRESS']
@@ -382,6 +393,13 @@ def sonar_ui():
 def get_state():
     return jsonify({k: v for k, v in state.items() if k != 'params'})
 
+@app.route('/surface', methods=['POST'])
+def surface():
+    if not mav or not state['mav_connected']:
+        return jsonify({'error': 'MAVLink not connected'})
+    _send_emergency_surface()
+    return jsonify({'status': 'surfacing'})
+
 @app.route('/arm', methods=['POST'])
 def arm():
     if not mav: return jsonify({'error': 'MAVLink not connected'})
@@ -454,6 +472,28 @@ def cam_action(action):
     if action not in cmds:
         return jsonify({'error': 'unknown action'})
     return jsonify(cam_send(cmds[action]))
+
+@app.route('/tiles/<int:z>/<int:x>/<int:y>')
+@app.route('/tiles/<int:z>/<int:x>/<int:y>.<ext>')
+def tiles(z, x, y, ext=None):
+    data = tile_cache.get_tile(z, x, y)
+    if data is None:
+        return ('', 404)
+    return Response(data, mimetype='image/jpeg')
+
+@app.route('/api/cache_area', methods=['POST'])
+def api_cache_area():
+    d = request.get_json(silent=True) or {}
+    try:
+        lat = float(d.get('lat', 0.0))
+        lon = float(d.get('lon', 0.0))
+        radius_mi = float(d.get('radius_mi', 3))
+        zooms = d.get('zooms')
+        if zooms is not None:
+            zooms = [int(z) for z in zooms]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid cache_area params'}), 400
+    return jsonify(tile_cache.cache_area(lat, lon, radius_mi, zooms))
 
 @app.route('/video')
 def video():
@@ -530,6 +570,17 @@ def pse_status():
 # ═══════════════════════════════════════════
 # SocketIO
 # ═══════════════════════════════════════════
+def _send_emergency_surface():
+    with mav_lock:
+        mav.mav.set_mode_send(mav.target_system, 1, 9)
+        if not state['armed']:
+            mav.mav.command_long_send(
+                mav.target_system, mav.target_component,
+                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                0, 1.0, 0,0,0,0,0,0)
+    print("[MAV] EMERGENCY SURFACE")
+    broadcast('ack', {'cmd': 11, 'result': 0, 'text': 'SURFACE'})
+
 @sio.on('connect')
 def on_connect():
     emit('status', {
@@ -540,8 +591,8 @@ def on_connect():
     if state['mav_connected']:
         emit('telemetry', {'mode': state['mode'],       'armed': state['armed']})
         emit('battery',   {'v': state['battery_v'],     'a': state['battery_a'], 'pct': state['battery_pct']})
-        emit('attitude',  {'roll': state['roll'],        'pitch': state['pitch'], 'yaw': state['yaw']})
-        emit('position',  {'depth': state['depth'],      'vx': state['vx'], 'vy': state['vy'], 'vz': state['vz']})
+        emit('attitude',  {'roll': state['roll'],        'pitch': state['pitch'], 'yaw': state['yaw'], 'heading': state['heading']})
+        emit('position',  {'depth': state['depth'],      'x': state['x'], 'y': state['y'], 'vx': state['vx'], 'vy': state['vy'], 'vz': state['vz'], 'speed': state['speed']})
 
 @sio.on('joystick')
 def on_joystick(data):
@@ -551,6 +602,13 @@ def on_joystick(data):
             mav.target_system,
             int(data.get('x',0)), int(data.get('y',0)),
             int(data.get('z',500)), int(data.get('r',0)), 0)
+
+@sio.on('emergency_surface')
+def on_emergency_surface(data=None):
+    if not mav or not state['mav_connected']:
+        emit('error', {'error': 'MAVLink not connected'})
+        return
+    _send_emergency_surface()
 
 @sio.on('arm')
 def on_arm(data):
