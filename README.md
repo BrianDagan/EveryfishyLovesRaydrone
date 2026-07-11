@@ -8,6 +8,10 @@ This is personal reverse engineering / maker work. We own the submarine, we docu
 
 > **Disclaimer**: Not affiliated with or endorsed by PowerVision. PowerVision® and PowerRay® are trademarks of PowerVision Technology Group. Use at your own risk.
 
+> 🐟 **Going out on the water?** Jump to the **[Field Guide](docs/FIELD-GUIDE.md)** —
+> pre-launch checklist, how to drive, and how to get the sub home. **New machine?**
+> `pip install -r web-ui/requirements.txt`, then `scripts\drive.ps1`.
+
 ---
 
 ## What's working
@@ -50,6 +54,21 @@ connected:
 
 > Written so that a year from now you can get the sub driving again in ~5 minutes
 > without re-reverse-engineering anything.
+>
+> 📖 For the **full** version — pre-launch checklist, the no-GPS navigation
+> explainer, and (most importantly) **how to get the drone home** — read the
+> **[Field Guide](docs/FIELD-GUIDE.md)**.
+
+### The easy button
+
+Already on the drone's WiFi (`PRA_Station_488057`)? One command runs the preflight,
+starts the cockpit, and opens your browser:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\drive.ps1
+```
+
+Prefer to do it by hand (or want to understand each step)? Read on.
 
 ### 0. One-time setup (needs internet)
 
@@ -60,6 +79,10 @@ pip install -r web-ui/requirements.txt
 
 Everything the browser needs (including the Socket.IO client) is vendored in this
 repo, so after this step the whole thing runs **fully offline**.
+
+> 🗺️ **Also do this at home:** pre-cache the satellite map for wherever you'll be
+> testing — it **cannot** be downloaded at the water. See
+> [Field Guide → pre-caching the map](docs/FIELD-GUIDE.md#2-before-you-leave-home--checklist-needs-internet).
 
 ### 1. Power on & join the drone's WiFi
 
@@ -87,6 +110,9 @@ Close the PowerVision **Vision+** app on the tablet/phone. The camera (Ambarella
 only allows **one** client at a time, so the app and this UI fight over it.
 
 ### 4. Start the server & open the UI
+
+> The **easy button** (`scripts\drive.ps1`) already does steps 2–4. This is the
+> manual equivalent.
 
 ```bash
 cd web-ui
@@ -172,6 +198,11 @@ $env:FCU_IP='127.0.0.1'; python web-ui/server.py
 
 Or run the automated smoke test: `python web-ui/tools/test_webui.py`.
 
+> ⚠️ Switching back to the **real** drone afterward? Use a **fresh terminal** (or
+> `scripts\drive.ps1`, which clears `FCU_IP`) so a leftover `FCU_IP=127.0.0.1`
+> doesn't quietly send you to the simulator. More in the
+> [Field Guide](docs/FIELD-GUIDE.md#8-testing-on-the-bench-no-drone-needed).
+
 ---
 
 ## PowerShell scripts
@@ -180,7 +211,8 @@ Quick scripts for testing without the full UI:
 
 | Script | What it does |
 |--------|-------------|
-| `interrogate_base_station.ps1` | **Start here** — auto-detects the AP/gateway (the base station), scans it + all known device IPs, and grabs banners |
+| `drive.ps1` | **Easy button** — preflight (right WiFi? flight controller up?), then start the cockpit and open the browser |
+| `interrogate_base_station.ps1` | **Recon** — auto-detects the AP/gateway (the base station), scans it + all known device IPs, and grabs banners |
 | `powerray_telemetry.ps1` | Decode and print MAVLink stream |
 | `powerray_cam.ps1` | Test camera JSON API (7878) |
 | `powerray_connect.ps1` | Basic TCP connection test |
@@ -189,9 +221,13 @@ Quick scripts for testing without the full UI:
 
 ---
 
-## Protocol docs
+## Documentation
 
-See [`docs/`](docs/) for detailed protocol documentation:
+**Start here:** 📖 [`docs/FIELD-GUIDE.md`](docs/FIELD-GUIDE.md) — the operating
+manual: pre-launch checklist, how to drive, and **how to get the sub home** (the
+no-GPS navigation + Return-to-Home workflow).
+
+Protocol references in [`docs/`](docs/):
 
 - [`mavlink-protocol.md`](docs/mavlink-protocol.md) — MAVLink messages, control sequence, modes
 - [`camera-json-api.md`](docs/camera-json-api.md) — Ambarella JSON commands (msg_id table)
